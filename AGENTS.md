@@ -19,7 +19,7 @@
 - `./TASK-en.md` — более полная версия задания на английском;
 - `./data/` — исходные данные: order book, trades, funding.
 
-Перед существенными изменениями логики сначала перечитать `README.md`, `TASK.md` и актуальный `RESEARCH.md`.
+Перед существенными изменениями логики сначала перечитать `TASK-ru.md`, `TASK-en.md` и актуальный `RESEARCH.md`.
 
 ---
 
@@ -473,8 +473,8 @@ riskOffThreshold
 ```text
 .
 ├── AGENTS.md
-├── README.md
-├── TASK.md
+├── TASK-ru.md
+├── TASK-en.md
 ├── RESEARCH.md
 ├── data/
 ├── src/

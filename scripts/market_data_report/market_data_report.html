@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Проверка market data</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 32px; color: #202124; }
+        h1, h2 { color: #17365d; }
+        p, li { line-height: 1.45; max-width: 1050px; }
+        .table-wrap { overflow-x: auto; margin-bottom: 28px; }
+        table.metrics { border-collapse: collapse; white-space: nowrap; font-size: 13px; }
+        table.metrics th, table.metrics td { border: 1px solid #d7dce2; padding: 7px 9px; text-align: right; }
+        table.metrics th:first-child, table.metrics td:first-child { text-align: left; }
+        table.metrics th { background: #eef3f8; }
+        .note { background: #f7f8fa; border-left: 4px solid #6b84a3; padding: 10px 14px; }
+        code { background: #f1f3f4; padding: 2px 4px; }
+    </style>
+</head>
+<body>
+    <h1>Проверка данных ETH perpetual</h1>
+    <p>Три дня: 2026-03-19, 2026-03-20, 2026-03-21. Отчет создан скриптом <code>analyze_market_data.py</code>.</p>
+
+    <h2>1. Качество snapshots и gaps</h2>
+    <div class="table-wrap"><table class="dataframe metrics">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Дата</th>
+      <th>Snapshots</th>
+      <th>Нарушения порядка</th>
+      <th>Дубли timestamp</th>
+      <th>Некорректный top</th>
+      <th>Интервал p50, мс</th>
+      <th>Интервал p99, мс</th>
+      <th>Gaps &gt; 1с</th>
+      <th>Макс. gap, с</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2026-03-19</td>
+      <td>1434475</td>
+      <td>0</td>
+      <td>0</td>
+      <td>0</td>
+      <td>52.1722</td>
+      <td>199.3036</td>
+      <td>10</td>
+      <td>22.6489</td>
+    </tr>
+    <tr>
+      <td>2026-03-20</td>
+      <td>1347884</td>
+      <td>0</td>
+      <td>0</td>
+      <td>0</td>
+      <td>53.0283</td>
+      <td>247.6728</td>
+      <td>44</td>
+      <td>36.9070</td>
+    </tr>
+    <tr>
+      <td>2026-03-21</td>
+      <td>799218</td>
+      <td>0</td>
+      <td>0</td>
+      <td>0</td>
+      <td>71.3655</td>
+      <td>584.6995</td>
+      <td>522</td>
+      <td>31.5524</td>
+    </tr>
+  </tbody>
+</table></div>
+
+    <h2>2. Режим рынка и поток сделок</h2>
+    <div class="table-wrap"><table class="dataframe metrics">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Дата</th>
+      <th>Mid p50</th>
+      <th>Основной spread</th>
+      <th>Доля основного spread, %</th>
+      <th>Volatility 1с, bps</th>
+      <th>Depth L1 p50, ETH</th>
+      <th>Depth L3 p50, ETH</th>
+      <th>Trade records</th>
+      <th>Trade events</th>
+      <th>Объем trades, ETH</th>
+      <th>Buy-aggressor volume, %</th>
+      <th>Размер trade p50, ETH</th>
+      <th>Размер trade p95, ETH</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2026-03-19</td>
+      <td>2,157.6500</td>
+      <td>0.1000</td>
+      <td>99.8138</td>
+      <td>1.0609</td>
+      <td>65.8700</td>
+      <td>140.4990</td>
+      <td>29347</td>
+      <td>21639</td>
+      <td>35,138.1740</td>
+      <td>50.7938</td>
+      <td>0.4620</td>
+      <td>5.4271</td>
+    </tr>
+    <tr>
+      <td>2026-03-20</td>
+      <td>2,140.7500</td>
+      <td>0.1000</td>
+      <td>99.8417</td>
+      <td>0.8908</td>
+      <td>68.1090</td>
+      <td>145.1610</td>
+      <td>23543</td>
+      <td>17356</td>
+      <td>25,432.3200</td>
+      <td>51.8188</td>
+      <td>0.3010</td>
+      <td>4.7179</td>
+    </tr>
+    <tr>
+      <td>2026-03-21</td>
+      <td>2,153.8500</td>
+      <td>0.1000</td>
+      <td>99.9234</td>
+      <td>0.5313</td>
+      <td>75.9120</td>
+      <td>171.3565</td>
+      <td>17666</td>
+      <td>13835</td>
+      <td>19,081.9700</td>
+      <td>48.3662</td>
+      <td>0.2060</td>
+      <td>5.2893</td>
+    </tr>
+  </tbody>
+</table></div>
+
+    <h2>3. Trades, стакан и грубая оценка очереди</h2>
+    <div class="table-wrap"><table class="dataframe metrics">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Дата</th>
+      <th>Trades со стаканом</th>
+      <th>Возраст стакана p50, мс</th>
+      <th>Возраст стакана p99, мс</th>
+      <th>На правильной стороне, %</th>
+      <th>Точно на touch, %</th>
+      <th>Видимая очередь p50, ETH</th>
+      <th>Trade / очередь p50</th>
+      <th>Trade &gt;= очередь, %</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2026-03-19</td>
+      <td>21639</td>
+      <td>32.5409</td>
+      <td>138.3006</td>
+      <td>98.8493</td>
+      <td>82.7303</td>
+      <td>6.0100</td>
+      <td>0.1530</td>
+      <td>25.9233</td>
+    </tr>
+    <tr>
+      <td>2026-03-20</td>
+      <td>17356</td>
+      <td>34.1383</td>
+      <td>206.5636</td>
+      <td>99.0666</td>
+      <td>84.4492</td>
+      <td>6.4735</td>
+      <td>0.1344</td>
+      <td>26.0033</td>
+    </tr>
+    <tr>
+      <td>2026-03-21</td>
+      <td>13835</td>
+      <td>42.2991</td>
+      <td>431.9842</td>
+      <td>98.7640</td>
+      <td>87.9942</td>
+      <td>9.0760</td>
+      <td>0.0426</td>
+      <td>15.8226</td>
+    </tr>
+  </tbody>
+</table></div>
+    <p class="note">Trade сопоставляется только с последним snapshot, известным строго до него.
+    Отношение trade к видимой очереди — диагностика масштаба, а не готовая вероятность fill:
+    cancellations и реальная L3-очередь неизвестны.</p>
+
+    <h2>4. Adverse selection и простые сигналы</h2>
+    <div class="table-wrap"><table class="dataframe metrics">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Дата</th>
+      <th>Adverse move 100мс, bps</th>
+      <th>Adverse move 500мс, bps</th>
+      <th>Adverse move 1000мс, bps</th>
+      <th>Corr imbalance L1 / future return</th>
+      <th>Corr imbalance L3 / future return</th>
+      <th>Corr trade flow 1с / future return</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2026-03-19</td>
+      <td>1.1251</td>
+      <td>1.2698</td>
+      <td>1.3162</td>
+      <td>0.4649</td>
+      <td>0.4922</td>
+      <td>0.1987</td>
+    </tr>
+    <tr>
+      <td>2026-03-20</td>
+      <td>1.0213</td>
+      <td>1.1592</td>
+      <td>1.2432</td>
+      <td>0.5127</td>
+      <td>0.5301</td>
+      <td>0.1749</td>
+    </tr>
+    <tr>
+      <td>2026-03-21</td>
+      <td>0.6634</td>
+      <td>0.7438</td>
+      <td>0.8124</td>
+      <td>0.3689</td>
+      <td>0.3439</td>
+      <td>0.1869</td>
+    </tr>
+  </tbody>
+</table></div>
+    <p class="note">Положительный adverse move означает, что после aggressive trade цена в среднем
+    продолжила движение против maker. Корреляции считаются с будущим mid через 500 мс и используются
+    только для исследования, не как доступная стратегии информация.</p>
+
+    <h2>5. Funding</h2>
+    <div class="table-wrap"><table class="dataframe metrics">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Дата</th>
+      <th>Наблюдений</th>
+      <th>Интервал p50, с</th>
+      <th>Rate min</th>
+      <th>Rate mean</th>
+      <th>Rate max</th>
+      <th>Положительный rate, %</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2026-03-19</td>
+      <td>4301</td>
+      <td>20.00000000</td>
+      <td>-0.00047769</td>
+      <td>-0.00004735</td>
+      <td>0.00043245</td>
+      <td>35.57312253</td>
+    </tr>
+    <tr>
+      <td>2026-03-20</td>
+      <td>4300</td>
+      <td>20.00000000</td>
+      <td>-0.00053978</td>
+      <td>-0.00006251</td>
+      <td>0.00025666</td>
+      <td>33.20930233</td>
+    </tr>
+    <tr>
+      <td>2026-03-21</td>
+      <td>4301</td>
+      <td>20.00000000</td>
+      <td>-0.00022819</td>
+      <td>0.00006072</td>
+      <td>0.00029673</td>
+      <td>76.49383864</td>
+    </tr>
+  </tbody>
+</table></div>
+
+    <h2>Ограничения</h2>
+    <ul>
+        <li>Проверяется top of book и первые три уровня, а не полная корректность всех 20 уровней.</li>
+        <li>L2 snapshots не позволяют восстановить точную очередь и причины исчезновения объема.</li>
+        <li>Корреляция сигнала с будущим движением не доказывает его торговую полезность.</li>
+        <li>Три дня нельзя считать достаточной выборкой для вывода о production-прибыльности.</li>
+    </ul>
+</body>
+</html>
