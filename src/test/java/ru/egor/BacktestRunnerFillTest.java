@@ -66,7 +66,6 @@ class BacktestRunnerFillTest {
         Order oldOrder = runner.getOrderManager().getActiveOrder(OrderSide.BUY);
         oldOrder.consumeQueue(5.0);
 
-        runner.setDesiredOrders(DesiredOrders.empty());
         runner.getOrderManager().reconcile(DesiredOrders.empty(), 112L);
         runner.processEvent(new TradeEvent(113L, 100.0, 1.0, false));
 
@@ -84,7 +83,6 @@ class BacktestRunnerFillTest {
                 new DesiredOrder(OrderSide.BUY, 99.0, 4.0),
                 null
         );
-        runner.setDesiredOrders(replacement);
         runner.getOrderManager().reconcile(replacement, 112L);
         runner.processEvent(orderBook(121L, 99.0, 8.0, 100.0, 7.0));
         runner.processEvent(new FundingRateEvent(123L, 0.0));
@@ -109,7 +107,6 @@ class BacktestRunnerFillTest {
                 null,
                 new DesiredOrder(OrderSide.SELL, 102.0, 3.0)
         );
-        runner.setDesiredOrders(desired);
         runner.getOrderManager().reconcile(desired, 100L);
 
         runner.processEvent(new FundingRateEvent(111L, 0.0));
@@ -140,7 +137,6 @@ class BacktestRunnerFillTest {
                 new DesiredOrder(OrderSide.BUY, 99.0, 3.0),
                 null
         );
-        runner.setDesiredOrders(desired);
         runner.getOrderManager().reconcile(desired, 100L);
 
         runner.processEvent(new FundingRateEvent(111L, 0.0));
@@ -165,7 +161,6 @@ class BacktestRunnerFillTest {
                 new DesiredOrder(OrderSide.BUY, 102.0, 3.0),
                 null
         );
-        runner.setDesiredOrders(desired);
         runner.getOrderManager().reconcile(desired, 100L);
 
         runner.processEvent(new FundingRateEvent(111L, 0.0));
@@ -184,7 +179,6 @@ class BacktestRunnerFillTest {
                 null,
                 new DesiredOrder(OrderSide.SELL, 99.0, 3.0)
         );
-        runner.setDesiredOrders(desired);
         runner.getOrderManager().reconcile(desired, 100L);
 
         runner.processEvent(new FundingRateEvent(111L, 0.0));
@@ -225,8 +219,8 @@ class BacktestRunnerFillTest {
                 new DesiredOrder(OrderSide.BUY, 90.0, 3.0),
                 null
         );
-        runner.setDesiredOrders(desired);
         runner.processEvent(orderBook(1_102L, 90.0, 4.0, 91.0, 4.0));
+        runner.getOrderManager().reconcile(desired, 1_102L);
 
         assertFalse(runner.isStaleBook());
         assertNull(runner.getOrderManager().getActiveOrder(OrderSide.BUY));
@@ -251,12 +245,37 @@ class BacktestRunnerFillTest {
                 new DesiredOrder(OrderSide.BUY, 100.0, size),
                 null
         );
-        runner.setDesiredOrders(desired);
         runner.getOrderManager().reconcile(desired, decisionTime);
     }
 
     private BacktestRunner runner(long latencyNanos, long maxBookAgeNanos) {
-        return new BacktestRunner(new BacktestParameters(latencyNanos, maxBookAgeNanos, 0.0));
+        BacktestRunner runner = new BacktestRunner(
+                new BacktestParameters(1.0, 100.0, latencyNanos, maxBookAgeNanos, 0.0),
+                new ProjectedOrdersStrategy()
+        );
+        return runner;
+    }
+
+    // Сохраняет уже спроецированные тестом ордера и не добавляет собственную торговую логику.
+    private static final class ProjectedOrdersStrategy implements MarketMakingStrategy {
+        @Override
+        public DesiredOrders decide(
+                OrderBookEvent orderBook,
+                boolean bookFresh,
+                double inventory,
+                PositionRange positionRange,
+                Order projectedBid,
+                Order projectedAsk
+        ) {
+            return new DesiredOrders(toDesiredOrder(projectedBid), toDesiredOrder(projectedAsk));
+        }
+
+        private DesiredOrder toDesiredOrder(Order order) {
+            if (order == null) {
+                return null;
+            }
+            return new DesiredOrder(order.getSide(), order.getPrice(), order.getOriginalSize());
+        }
     }
 
     private OrderBookEvent orderBook(

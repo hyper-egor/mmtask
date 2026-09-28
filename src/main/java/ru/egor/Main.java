@@ -8,22 +8,15 @@ import java.util.List;
 
 public final class Main {
     private static final Path DATA_DIRECTORY = Path.of("data");
-
-    // Стартовые параметры сценария, а не вывод исследования. Их нужно варьировать в экспериментах.
-    private static final long ORDER_LATENCY_MILLIS = 3L;
-    private static final long MAX_BOOK_AGE_MILLIS = 1_000L;
-    private static final double MAKER_FEE_BPS = 0.0;
+    private static final Path RESULTS_DIRECTORY = Path.of("results");
 
     public static void main(String[] args) throws IOException {
         List<Event> eventTape = initializeEventTape();
 
-        BacktestParameters parameters = new BacktestParameters(
-                ORDER_LATENCY_MILLIS * 1_000_000L,
-                MAX_BOOK_AGE_MILLIS * 1_000_000L,
-                MAKER_FEE_BPS
-        );
+        BacktestParameters parameters = BacktestParameters.baseline();
         BacktestRunner backtestRunner = new BacktestRunner(parameters);
-        backtestRunner.run(eventTape);
+        BacktestResult result = backtestRunner.run(eventTape);
+        new BacktestReportWriter().write(result, RESULTS_DIRECTORY);
     }
 
     // Явно загружает выбранные дни. Для короткого запуска лишние строки можно закомментировать.

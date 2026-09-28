@@ -8,7 +8,7 @@ public final class Fill {
     private final double size;
 
     public Fill(long timestampNanos, long orderId, OrderSide side, double price, double size) {
-        if (price <= 0.0 || size <= 0.0) {
+        if (!Double.isFinite(price) || !Double.isFinite(size) || price <= 0.0 || size <= 0.0) {
             throw new IllegalArgumentException("Цена и объем fill должны быть положительными");
         }
 

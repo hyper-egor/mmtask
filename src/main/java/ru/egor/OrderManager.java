@@ -38,15 +38,23 @@ public final class OrderManager {
                 iterator.remove();
             }
         }
+
+        // Если между market events созрело несколько replacement, очередь нужна только финальным ордерам.
+        activatedOrders.removeIf(order -> {
+            Order activeOrder = getActiveOrderInternal(order.getSide());
+            return activeOrder == null || activeOrder.getId() != order.getId();
+        });
         return activatedOrders;
     }
 
     // Сравнивает желаемые bid/ask с состоянием после всех команд в полете
     // и отправляет только недостающие place, cancel или cancel + place.
-    public void reconcile(DesiredOrders desiredOrders, long decisionTimeNanos) {
+    public ReconciliationResult reconcile(DesiredOrders desiredOrders, long decisionTimeNanos) {
+        ReconciliationResult result = new ReconciliationResult();
         OrderState projectedState = projectOrderState();
-        reconcileSide(OrderSide.BUY, desiredOrders.getBid(), projectedState.bid, decisionTimeNanos);
-        reconcileSide(OrderSide.SELL, desiredOrders.getAsk(), projectedState.ask, decisionTimeNanos);
+        reconcileSide(OrderSide.BUY, desiredOrders.getBid(), projectedState.bid, decisionTimeNanos, result);
+        reconcileSide(OrderSide.SELL, desiredOrders.getAsk(), projectedState.ask, decisionTimeNanos, result);
+        return result;
     }
 
     // Уменьшает остаток именно того активного ордера, который был исполнен.
@@ -115,13 +123,15 @@ public final class OrderManager {
             OrderSide side,
             DesiredOrder desiredOrder,
             Order projectedOrder,
-            long decisionTimeNanos
+            long decisionTimeNanos,
+            ReconciliationResult result
     ) {
         if (desiredOrder == null && projectedOrder == null) {
             return;
         }
         if (desiredOrder == null) {
             sendCancel(projectedOrder, decisionTimeNanos);
+            result.recordCancel();
             return;
         }
         if (projectedOrder == null) {
@@ -136,6 +146,8 @@ public final class OrderManager {
         // Cancel добавляется раньше place при одинаковых sent time и latency.
         sendCancel(projectedOrder, decisionTimeNanos);
         sendPlace(desiredOrder, decisionTimeNanos);
+        result.recordCancel();
+        result.recordReplacement();
     }
 
     // Резервирует id будущего ордера сразу, чтобы следующие решения видели pending place.

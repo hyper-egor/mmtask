@@ -4,6 +4,7 @@ import java.util.List;
 
 public final class BacktestRunner {
     private final BacktestParameters parameters;
+    private final MarketMakingStrategy strategy;
 
     private OrderManager orderManager;
     private DesiredOrders desiredOrders;
@@ -12,20 +13,35 @@ public final class BacktestRunner {
     private Double currentFundingRate;
     private boolean staleBook;
     private int gapResetCount;
-
-    private double inventory;
-    private double cash;
-    private double feesPaid;
+    private Portfolio portfolio;
+    private BacktestMetrics metrics;
+    private HourlyStatisticsCollector hourlyStatistics;
+    private Long staleStartedAtNanos;
+    private long lastEventTimeNanos;
 
     public BacktestRunner(BacktestParameters parameters) {
+        this(
+                parameters,
+                new SymmetricMarketMakingStrategy(
+                        parameters.getOrderSize(),
+                        parameters.getHardInventoryLimit()
+                )
+        );
+    }
+
+    BacktestRunner(BacktestParameters parameters, MarketMakingStrategy strategy) {
         this.parameters = parameters;
+        this.strategy = strategy;
         resetState();
     }
 
     // Последовательно проигрывает market tape в экономически значимом порядке:
     // команды, fills, состояние рынка, решение стратегии, reconciliation и метрики.
-    public void run(List<Event> eventTape) {
+    public BacktestResult run(List<Event> eventTape) {
         resetState();
+        if (eventTape.isEmpty()) {
+            throw new IllegalArgumentException("Event tape не может быть пустым");
+        }
         long startedAt = System.nanoTime();
         long processedEvents = 0;
 
@@ -34,24 +50,50 @@ public final class BacktestRunner {
             processedEvents++;
         }
 
+        closeRemainingOrders(lastEventTimeNanos);
+        if (staleStartedAtNanos != null) {
+            metrics.onStalePeriod(staleStartedAtNanos, lastEventTimeNanos);
+        }
+        hourlyStatistics.finish();
+        List<BacktestSummaryRow> summaryRows = metrics.finish(lastEventTimeNanos);
+        validateDailyPnl(summaryRows);
+
+        BacktestResult result = new BacktestResult(
+                strategy.getClass().getSimpleName(),
+                parameters,
+                summaryRows,
+                hourlyStatistics.getRows()
+        );
+
         double elapsedSeconds = (System.nanoTime() - startedAt) / 1_000_000_000.0;
         System.out.printf(
                 "Replay завершен: %,d событий за %.3f с%n",
                 processedEvents,
                 elapsedSeconds
         );
+        return result;
     }
 
     // Выполняет один полный шаг replay. Отдельный метод позволяет проверять порядок на малых сценариях.
     void processEvent(Event event) {
         long eventTimeNanos = event.getTimestampNanos();
+        lastEventTimeNanos = eventTimeNanos;
+        metrics.beforeEvent(eventTimeNanos);
+        hourlyStatistics.beforeEvent(eventTimeNanos);
 
         // Проверяем - если последние обновление стакана было слишком давно то "забываем" про открытые ордера
         // - это допущение-упрощение бекстеста - обход аномалии..
         checkGapBefore(eventTimeNanos);
 
         // Ордер может участвовать в fill только после фактического завершения своей latency.
+        Order oldBid = orderManager.getActiveOrder(OrderSide.BUY);
+        Order oldAsk = orderManager.getActiveOrder(OrderSide.SELL);
         List<Order> activatedOrders = orderManager.applyCommandsBefore(eventTimeNanos);
+        recordCanceledOrder(oldBid, orderManager.getActiveOrder(OrderSide.BUY), eventTimeNanos);
+        recordCanceledOrder(oldAsk, orderManager.getActiveOrder(OrderSide.SELL), eventTimeNanos);
+        for (Order order : activatedOrders) {
+            metrics.onOrderActivated(order, eventTimeNanos);
+        }
         // Только созданным после latency ордерам - фиксируем очередь исполнения которая в стакане на момент активации
         // - эту очередь надо "разъесть" до того как будем счетать свой fill
         initializeQueues(activatedOrders);
@@ -63,13 +105,15 @@ public final class BacktestRunner {
         // После проверки fills делаем текущее событие частью известного состояния рынка.
         updateMarketState(event);
 
-        PositionRange positionRange = orderManager.calculatePositionRange(inventory);
+        // получить минимальную и максимальную возможную позицию - ЕСЛИ исполнятся "висящие" ордера
+        PositionRange positionRange = orderManager.calculatePositionRange(portfolio.getInventory());
 
         // Стратегия принимает решение по обновленному рынку и фактическому inventory после fills.
         desiredOrders = decideDesiredOrders(positionRange);
 
         // Сравнение идет с projected state, поэтому pending-команды не дублируются.
-        orderManager.reconcile(desiredOrders, eventTimeNanos);
+        ReconciliationResult reconciliation = orderManager.reconcile(desiredOrders, eventTimeNanos);
+        metrics.onReconciliation(reconciliation);
 
         updateMetrics(eventTimeNanos);
     }
@@ -87,11 +131,15 @@ public final class BacktestRunner {
             return;
         }
 
+        closeActiveOrders(eventTimeNanos);
         orderManager.resetOrdersForGap();
         desiredOrders = DesiredOrders.empty();
         lastTrade = null;
         staleBook = true;
+        staleStartedAtNanos = Math.addExact(bookTimeNanos, parameters.getMaxBookAgeNanos());
         gapResetCount++;
+        metrics.onGapReset();
+        hourlyStatistics.onGapReset();
     }
 
     // Новому активному ордеру назначается очередь только по последнему уже известному snapshot.
@@ -104,6 +152,7 @@ public final class BacktestRunner {
                 // Если цена ушла в недопустимую для ордера сторону
                 //  - отменяем ордер...
                 orderManager.rejectActiveOrder(order);
+                metrics.onOrderClosed(order, lastEventTimeNanos);
                 forgetDesiredOrder(order.getSide());
                 continue;
             }
@@ -219,29 +268,21 @@ public final class BacktestRunner {
         return List.of();
     }
 
-    // Сначала уменьшает остаток ордера, затем отражает fill в cash, inventory и fees.
+    // Сначала уменьшает остаток ордера, затем ровно один раз передает fill в portfolio.
     private void applyFills(List<Fill> fills) {
         for (Fill fill : fills) {
+            Order order = orderManager.getActiveOrder(fill.getSide());
+            boolean fullFill = Double.compare(fill.getSize(), order.getRemainingSize()) == 0;
+            boolean partialFill = fill.getSize() < order.getRemainingSize();
+
+            metrics.onFill(fill, fullFill, partialFill);
+            hourlyStatistics.onFill(fill);
             orderManager.applyFill(fill);
-            applyFillToPortfolio(fill);
+            portfolio.applyFill(fill, parameters.getMakerFeeBps());
+            if (fullFill) {
+                metrics.onOrderClosed(order, fill.getTimestampNanos());
+            }
         }
-    }
-
-    // Ведет минимальный денежный ledger. Разложение realized/unrealized PnL будет добавлено отдельно.
-    private void applyFillToPortfolio(Fill fill) {
-        double notional = fill.getPrice() * fill.getSize();
-        double fee = notional * parameters.getMakerFeeBps() / 10_000.0;
-
-        if (fill.getSide() == OrderSide.BUY) {
-            inventory += fill.getSize();
-            cash -= notional;
-        } else {
-            inventory -= fill.getSize();
-            cash += notional;
-        }
-
-        cash -= fee;
-        feesPaid += fee;
     }
 
     // Обновляет только наблюдаемое состояние рынка; это событие уже не будет повторно давать fills.
@@ -262,6 +303,10 @@ public final class BacktestRunner {
 
     // Snapshot полностью заменяет предыдущее известное состояние L2 order book.
     private void updateOrderBookState(OrderBookEvent orderBook) {
+        if (staleBook && staleStartedAtNanos != null) {
+            metrics.onStalePeriod(staleStartedAtNanos, orderBook.getTimestampNanos());
+            staleStartedAtNanos = null;
+        }
         currentOrderBook = orderBook;
         staleBook = false;
     }
@@ -271,14 +316,33 @@ public final class BacktestRunner {
         currentFundingRate = fundingRate.getFundingRate();
     }
 
-    // Определяет желаемые котировки по текущему рынку, inventory и возможному диапазону позиции.
-    // Пока стратегия не зафиксирована, сохраняет прежнее желаемое состояние ордеров.
+    // Передает стратегии только известный рынок, фактическую позицию и уже учтенный order risk.
     private DesiredOrders decideDesiredOrders(PositionRange positionRange) {
-        return desiredOrders;
+        return strategy.decide(
+                currentOrderBook,
+                currentOrderBook != null && !staleBook,
+                portfolio.getInventory(),
+                positionRange,
+                orderManager.getProjectedOrder(OrderSide.BUY),
+                orderManager.getProjectedOrder(OrderSide.SELL)
+        );
     }
 
-    // Точка для mark-to-market, risk metrics и накопительной статистики после полного шага replay.
+    // Обновляет точные event-based метрики, часовой timeline и проверяет accounting/risk invariants.
     private void updateMetrics(long eventTimeNanos) {
+        Double midPrice = currentMidPrice();
+        PositionRange finalRange = orderManager.calculatePositionRange(portfolio.getInventory());
+        validateHardLimit(finalRange);
+
+        if (midPrice == null) {
+            return;
+        }
+
+        StatisticsSnapshot snapshot = new StatisticsSnapshot(portfolio, midPrice);
+        validateFiniteSnapshot(snapshot);
+        validateAccounting(snapshot);
+        metrics.afterEvent(snapshot);
+        hourlyStatistics.afterEvent(snapshot);
     }
 
     // Полностью очищает состояние, чтобы один runner можно было безопасно запустить повторно.
@@ -290,25 +354,112 @@ public final class BacktestRunner {
         currentFundingRate = null;
         staleBook = false;
         gapResetCount = 0;
-        inventory = 0.0;
-        cash = 0.0;
-        feesPaid = 0.0;
+        portfolio = new Portfolio();
+        metrics = new BacktestMetrics();
+        hourlyStatistics = new HourlyStatisticsCollector();
+        staleStartedAtNanos = null;
+        lastEventTimeNanos = Long.MIN_VALUE;
+    }
+
+    private Double currentMidPrice() {
+        if (currentOrderBook == null) {
+            return null;
+        }
+        double bestBid = currentOrderBook.getBidPrice(0);
+        double bestAsk = currentOrderBook.getAskPrice(0);
+        if (!Double.isFinite(bestBid) || !Double.isFinite(bestAsk) || bestBid <= 0.0 || bestAsk <= bestBid) {
+            return null;
+        }
+        return (bestBid + bestAsk) / 2.0;
+    }
+
+    // Отмечает cancel старого active order, если после применения команд его id больше не активен.
+    private void recordCanceledOrder(Order oldOrder, Order currentOrder, long eventTimeNanos) {
+        if (oldOrder != null && (currentOrder == null || currentOrder.getId() != oldOrder.getId())) {
+            metrics.onOrderClosed(oldOrder, eventTimeNanos);
+        }
+    }
+
+    private void closeActiveOrders(long eventTimeNanos) {
+        Order bid = orderManager.getActiveOrder(OrderSide.BUY);
+        Order ask = orderManager.getActiveOrder(OrderSide.SELL);
+        if (bid != null) {
+            metrics.onOrderClosed(bid, eventTimeNanos);
+        }
+        if (ask != null) {
+            metrics.onOrderClosed(ask, eventTimeNanos);
+        }
+    }
+
+    // В конце replay закрывает только статистическое время жизни, не отменяя ордера и не меняя portfolio.
+    private void closeRemainingOrders(long eventTimeNanos) {
+        closeActiveOrders(eventTimeNanos);
+    }
+
+    private void validateHardLimit(PositionRange range) {
+        double limit = parameters.getHardInventoryLimit();
+        double tolerance = 1e-9;
+        if (portfolio.getInventory() < -limit - tolerance
+                || portfolio.getInventory() > limit + tolerance
+                || range.getMinPosition() < -limit - tolerance
+                || range.getMaxPosition() > limit + tolerance) {
+            throw new IllegalStateException("Нарушен hard inventory limit");
+        }
+    }
+
+    private void validateFiniteSnapshot(StatisticsSnapshot snapshot) {
+        double[] values = {
+                snapshot.getMidPrice(),
+                snapshot.getInventory(),
+                snapshot.getRealizedPnl(),
+                snapshot.getUnrealizedPnl(),
+                snapshot.getGrossPnl(),
+                snapshot.getFeesPaid(),
+                snapshot.getFundingPnl(),
+                snapshot.getNetPnl()
+        };
+        for (double value : values) {
+            if (!Double.isFinite(value)) {
+                throw new IllegalStateException("В метриках появилось неконечное число");
+            }
+        }
+    }
+
+    private void validateAccounting(StatisticsSnapshot snapshot) {
+        double cashEquity = portfolio.calculateNetEquity(snapshot.getMidPrice());
+        double tolerance = 1e-8 * Math.max(1.0, Math.abs(snapshot.getNetPnl()));
+        if (Math.abs(snapshot.getNetPnl() - cashEquity) > tolerance) {
+            throw new IllegalStateException("PnL не сходится с контрольным cash ledger");
+        }
+    }
+
+    private void validateDailyPnl(List<BacktestSummaryRow> rows) {
+        double dailyPnlSum = 0.0;
+        for (BacktestSummaryRow row : rows) {
+            if (!"TOTAL".equals(row.getPeriod())) {
+                dailyPnlSum += row.getDailyPnl();
+            }
+        }
+        double totalPnl = rows.get(rows.size() - 1).getSnapshot().getNetPnl();
+        if (Math.abs(dailyPnlSum - totalPnl) > 1e-8 * Math.max(1.0, Math.abs(totalPnl))) {
+            throw new IllegalStateException("Сумма daily PnL не совпадает с total PnL");
+        }
     }
 
     OrderManager getOrderManager() {
         return orderManager;
     }
 
-    void setDesiredOrders(DesiredOrders desiredOrders) {
-        this.desiredOrders = desiredOrders;
-    }
-
     double getInventory() {
-        return inventory;
+        return portfolio.getInventory();
     }
 
     double getCash() {
-        return cash;
+        return portfolio.getTradingCash();
+    }
+
+    Portfolio getPortfolio() {
+        return portfolio;
     }
 
     int getGapResetCount() {
