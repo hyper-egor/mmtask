@@ -14,10 +14,9 @@ public final class Main {
         List<Event> eventTape = initializeEventTape();
 
         BacktestParameters parameters = BacktestParameters.baseline();
-        MarketMakingStrategy strategy = new PriceMagnetStrategy(
+        MarketMakingStrategy strategy = new BaseImbalanceStrategy(
                 parameters.getOrderSize(),
-                parameters.getHardInventoryLimit(),
-                parameters.getOrderLatencyNanos()
+                parameters.getHardInventoryLimit()
         );
         BacktestRunner backtestRunner = new BacktestRunner(parameters, strategy);
         BacktestResult result = backtestRunner.run(eventTape);

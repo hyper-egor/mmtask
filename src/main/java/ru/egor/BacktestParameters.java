@@ -1,11 +1,11 @@
 package ru.egor;
 
 public final class BacktestParameters {
-    public static final double DEFAULT_ORDER_SIZE = 2.;
-    public static final double DEFAULT_HARD_INVENTORY_LIMIT = 15.0;
+    public static final double DEFAULT_ORDER_SIZE = 1.;
+    public static final double DEFAULT_HARD_INVENTORY_LIMIT = 5.0;
     public static final long DEFAULT_ORDER_LATENCY_NANOS = 10_000_000L;
     public static final long DEFAULT_MAX_BOOK_AGE_NANOS = 1_000_000_000L;
-    public static final double DEFAULT_MAKER_FEE_BPS = 1.0; // сотая доля процента
+    public static final double DEFAULT_MAKER_FEE_BPS = .0; // сотая доля процента
     public static final double MIN_EXIT_PROFIT_USD = 11110.1;
 
 

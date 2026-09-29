@@ -3,9 +3,9 @@ package ru.egor;
 public final class BaseImbalanceStrategy implements MarketMakingStrategy {
     public static final long DEFAULT_IMBALANCE_WINDOW_NANOS = 120_000_000_000L;
     public static final long DEFAULT_AGGRESSION_WINDOW_NANOS = 120_000_000_000L;
-    public static final double DEFAULT_AGGRESSION_RATIO = 1.01;
-    public static final double WINDOW_IMBALANCE_RATIO = 1.6;
-    public static final double INSTANT_IMBALANCE_RATIO = 1.05;
+    public static final double DEFAULT_AGGRESSION_RATIO = 1.01; // 1.01
+    public static final double WINDOW_IMBALANCE_RATIO = 1.6;   // 1.6
+    public static final double INSTANT_IMBALANCE_RATIO = 1.2;
     public static final int DEFAULT_ROLLING_BOOK_LEVELS = 5;
     public static final int DEFAULT_INSTANT_BOOK_LEVELS = 20;
 
@@ -124,7 +124,14 @@ public final class BaseImbalanceStrategy implements MarketMakingStrategy {
                 aggressionRatio
         );
 
-        return filterAllowedSides(baselineOrders, windowSignal, instantSignal, aggressionSignal);
+        return filterAllowedSides(
+                baselineOrders,
+                projectedBid,
+                projectedAsk,
+                windowSignal,
+                instantSignal,
+                aggressionSignal
+        );
     }
 
     // Один snapshot добавляется в окно ровно один раз, даже если стратегия вызывается
@@ -180,25 +187,31 @@ public final class BaseImbalanceStrategy implements MarketMakingStrategy {
     // Моментальный TOP20 сейчас рассчитан, но вручную исключен из условия.
     private DesiredOrders filterAllowedSides(
             DesiredOrders baselineOrders,
+            Order projectedBid,
+            Order projectedAsk,
             ImbalanceSignal windowSignal,
             ImbalanceSignal instantSignal,
             ImbalanceSignal aggressionSignal
     ) {
         if (windowSignal == ImbalanceSignal.BID_DOMINANT
                 //&& instantSignal == ImbalanceSignal.BID_DOMINANT
-                && aggressionSignal == ImbalanceSignal.BID_DOMINANT) {
+                //&& aggressionSignal == ImbalanceSignal.BID_DOMINANT
+        ) {
             return new DesiredOrders(
                     quoteOrCancel(baselineOrders.getBid()),
+                    //keepOrQuoteOrCancel(baselineOrders.getBid(), projectedBid),
                     OrderInstruction.cancel()
             );
         }
 
         if (windowSignal == ImbalanceSignal.ASK_DOMINANT
                 //&& instantSignal == ImbalanceSignal.ASK_DOMINANT
-                && aggressionSignal == ImbalanceSignal.ASK_DOMINANT) {
+                //&& aggressionSignal == ImbalanceSignal.ASK_DOMINANT
+        ) {
             return new DesiredOrders(
                     OrderInstruction.cancel(),
                     quoteOrCancel(baselineOrders.getAsk())
+                    //keepOrQuoteOrCancel(baselineOrders.getAsk(), projectedAsk)
             );
         }
 
@@ -223,6 +236,18 @@ public final class BaseImbalanceStrategy implements MarketMakingStrategy {
     private OrderInstruction keepOrCancel(DesiredOrder desiredOrder) {
         if (desiredOrder == null) {
             return OrderInstruction.cancel();
+        }
+        return OrderInstruction.keep();
+    }
+
+    // Если ордер уже есть или стоит в pending-командах, оставляем его.
+    // Если стороны еще нет, создаем baseline-ордер; если baseline запретил сторону, отменяем.
+    private OrderInstruction keepOrQuoteOrCancel(DesiredOrder desiredOrder, Order projectedOrder) {
+        if (desiredOrder == null) {
+            return OrderInstruction.cancel();
+        }
+        if (projectedOrder == null) {
+            return OrderInstruction.quote(desiredOrder);
         }
         return OrderInstruction.keep();
     }

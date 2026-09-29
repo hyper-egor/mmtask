@@ -94,7 +94,7 @@ class BacktestRunnerFillTest {
     }
 
     @Test
-    void sellQueueIncludesBetterAskLevelsBeforeOrderPrice() {
+    void sellQueueIncludesOnlyVolumeAtOrderPrice() {
         BacktestRunner runner = runner(10L, 1_000L);
         runner.processEvent(orderBook(
                 100L,
@@ -112,9 +112,9 @@ class BacktestRunnerFillTest {
         runner.processEvent(new FundingRateEvent(111L, 0.0));
 
         Order order = runner.getOrderManager().getActiveOrder(OrderSide.SELL);
-        assertEquals(10.0, order.getQueueAhead());
+        assertEquals(4.0, order.getQueueAhead());
 
-        runner.processEvent(new TradeEvent(112L, 102.0, 9.0, true));
+        runner.processEvent(new TradeEvent(112L, 102.0, 3.0, true));
         assertEquals(1.0, order.getQueueAhead());
         assertEquals(0.0, runner.getInventory());
 
@@ -124,7 +124,7 @@ class BacktestRunnerFillTest {
     }
 
     @Test
-    void buyQueueIncludesBetterBidLevelsBeforeOrderPrice() {
+    void buyQueueIncludesOnlyVolumeAtOrderPrice() {
         BacktestRunner runner = runner(10L, 1_000L);
         runner.processEvent(orderBook(
                 100L,
@@ -142,9 +142,9 @@ class BacktestRunnerFillTest {
         runner.processEvent(new FundingRateEvent(111L, 0.0));
 
         Order order = runner.getOrderManager().getActiveOrder(OrderSide.BUY);
-        assertEquals(9.0, order.getQueueAhead());
+        assertEquals(4.0, order.getQueueAhead());
 
-        runner.processEvent(new TradeEvent(112L, 99.0, 8.0, false));
+        runner.processEvent(new TradeEvent(112L, 99.0, 3.0, false));
         assertEquals(1.0, order.getQueueAhead());
         assertEquals(0.0, runner.getInventory());
 

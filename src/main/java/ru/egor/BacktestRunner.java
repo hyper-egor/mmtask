@@ -156,7 +156,7 @@ public final class BacktestRunner {
                 forgetDesiredOrder(order.getSide());
                 continue;
             }
-            order.initializeQueue(findVisibleQuantity(order));
+            order.initializeQueue(findVisibleQuantityAtOrderPrice(order));
         }
     }
 
@@ -185,9 +185,9 @@ public final class BacktestRunner {
         desiredOrders = new DesiredOrders(bid, ask);
     }
 
-    // Считает видимый объем с лучшим или равным price priority перед нашим ордером.
-    // Новый пассивный уровень внутри spread по-прежнему получает нулевую очередь.
-    private double findVisibleQuantity(Order order) {
+    // Считает только видимый объем на цене нашего ордера: лучшие уровни уже учтены
+    // отдельной проверкой достижения цены и не должны второй раз попадать в очередь.
+    private double findVisibleQuantityAtOrderPrice(Order order) {
         double visibleQuantity = 0.0;
 
         for (int levelIndex = 0; levelIndex < OrderBookEvent.LEVEL_COUNT; levelIndex++) {
@@ -205,13 +205,10 @@ public final class BacktestRunner {
                 continue;
             }
 
-            boolean hasPricePriority;
-            if (order.getSide() == OrderSide.BUY) {
-                hasPricePriority = levelPrice >= order.getPrice();
-            } else {
-                hasPricePriority = levelPrice <= order.getPrice();
-            }
-            if (hasPricePriority) {
+            // При price-time priority перед нами стоят только уже видимые заявки
+            // на той же цене. Trade на нашей цене или хуже подтверждает, что рынок
+            // уже прошел все лучшие уровни.
+            if (Double.compare(levelPrice, order.getPrice()) == 0) {
                 visibleQuantity += levelQuantity;
             }
         }
