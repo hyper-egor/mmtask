@@ -263,6 +263,7 @@ class BacktestRunnerFillTest {
                 OrderBookEvent orderBook,
                 boolean bookFresh,
                 double inventory,
+                double averageEntryPrice,
                 PositionRange positionRange,
                 Order projectedBid,
                 Order projectedAsk

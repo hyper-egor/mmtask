@@ -114,6 +114,7 @@ class SymmetricMarketMakingStrategyTest {
                 orderBook,
                 bookFresh,
                 0.0,
+                0.0,
                 positionRange,
                 projectedBid,
                 projectedAsk

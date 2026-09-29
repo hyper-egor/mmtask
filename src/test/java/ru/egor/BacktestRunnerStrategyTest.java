@@ -10,6 +10,32 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 class BacktestRunnerStrategyTest {
 
     @Test
+    void passesEveryTradeToStrategyExactlyOnce() {
+        BacktestParameters parameters = new BacktestParameters(1.0, 5.0, 10L, 1_000L, 0.0);
+        TradeRecordingStrategy strategy = new TradeRecordingStrategy();
+        BacktestRunner runner = new BacktestRunner(parameters, strategy);
+
+        runner.processEvent(orderBook(100L, 100.0, 101.0));
+        runner.processEvent(new TradeEvent(101L, 100.0, 0.4, true));
+
+        assertEquals(1, strategy.tradeCount);
+        assertEquals(0.4, strategy.totalTradeVolume, 1e-9);
+    }
+
+    @Test
+    void passesInventoryAndAverageEntryPriceToStrategy() {
+        BacktestParameters parameters = new BacktestParameters(1.0, 5.0, 10L, 1_000L, 0.0);
+        TradeRecordingStrategy strategy = new TradeRecordingStrategy();
+        BacktestRunner runner = new BacktestRunner(parameters, strategy);
+        runner.getPortfolio().applyFill(new Fill(1L, 1L, OrderSide.BUY, 100.0, 0.4), 0.0);
+
+        runner.processEvent(orderBook(100L, 100.0, 101.0));
+
+        assertEquals(0.4, strategy.lastInventory, 1e-9);
+        assertEquals(100.0, strategy.lastAverageEntryPrice, 1e-9);
+    }
+
+    @Test
     void freshBookCreatesBidAndAskWithoutDuplicateCommands() {
         BacktestRunner runner = runner();
 
@@ -110,6 +136,34 @@ class BacktestRunnerStrategyTest {
     private BacktestRunner runner() {
         BacktestParameters parameters = new BacktestParameters(1.0, 5.0, 10L, 1_000L, 0.0);
         return new BacktestRunner(parameters);
+    }
+
+    private static final class TradeRecordingStrategy implements MarketMakingStrategy {
+        private int tradeCount;
+        private double totalTradeVolume;
+        private double lastInventory;
+        private double lastAverageEntryPrice;
+
+        @Override
+        public void onTrade(TradeEvent trade) {
+            tradeCount++;
+            totalTradeVolume += trade.getSize();
+        }
+
+        @Override
+        public DesiredOrders decide(
+                OrderBookEvent orderBook,
+                boolean bookFresh,
+                double inventory,
+                double averageEntryPrice,
+                PositionRange positionRange,
+                Order projectedBid,
+                Order projectedAsk
+        ) {
+            lastInventory = inventory;
+            lastAverageEntryPrice = averageEntryPrice;
+            return DesiredOrders.empty();
+        }
     }
 
     private OrderBookEvent orderBook(long timestamp, double bestBid, double bestAsk) {

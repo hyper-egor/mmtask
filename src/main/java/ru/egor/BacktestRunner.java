@@ -296,9 +296,10 @@ public final class BacktestRunner {
         }
     }
 
-    // Сохраняет trade для будущих сигналов trade flow.
+    // Сохраняет trade и ровно один раз передает его стратегии после обработки fills.
     private void updateTradeState(TradeEvent trade) {
         lastTrade = trade;
+        strategy.onTrade(trade);
     }
 
     // Snapshot полностью заменяет предыдущее известное состояние L2 order book.
@@ -322,6 +323,7 @@ public final class BacktestRunner {
                 currentOrderBook,
                 currentOrderBook != null && !staleBook,
                 portfolio.getInventory(),
+                portfolio.getAverageEntryPrice(),
                 positionRange,
                 orderManager.getProjectedOrder(OrderSide.BUY),
                 orderManager.getProjectedOrder(OrderSide.SELL)

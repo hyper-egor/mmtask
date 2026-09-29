@@ -47,13 +47,23 @@ public final class OrderManager {
         return activatedOrders;
     }
 
-    // Сравнивает желаемые bid/ask с состоянием после всех команд в полете
-    // и отправляет только недостающие place, cancel или cancel + place.
+    // Выполняет явную инструкцию KEEP, CANCEL или QUOTE для каждой стороны.
+    // QUOTE сравнивается с состоянием после всех команд в полете и не дублирует команды.
     public ReconciliationResult reconcile(DesiredOrders desiredOrders, long decisionTimeNanos) {
         ReconciliationResult result = new ReconciliationResult();
         OrderState projectedState = projectOrderState();
-        reconcileSide(OrderSide.BUY, desiredOrders.getBid(), projectedState.bid, decisionTimeNanos, result);
-        reconcileSide(OrderSide.SELL, desiredOrders.getAsk(), projectedState.ask, decisionTimeNanos, result);
+        reconcileSide(
+                desiredOrders.getInstruction(OrderSide.BUY),
+                projectedState.bid,
+                decisionTimeNanos,
+                result
+        );
+        reconcileSide(
+                desiredOrders.getInstruction(OrderSide.SELL),
+                projectedState.ask,
+                decisionTimeNanos,
+                result
+        );
         return result;
     }
 
@@ -118,22 +128,28 @@ public final class OrderManager {
         return new PositionRange(minPosition, maxPosition);
     }
 
-    // Для одной стороны выбирает минимальную команду: ничего, place, cancel или cancel + place.
+    // KEEP ничего не меняет, CANCEL обеспечивает отсутствие ордера,
+    // QUOTE при необходимости выполняет place или cancel + place.
     private void reconcileSide(
-            OrderSide side,
-            DesiredOrder desiredOrder,
+            OrderInstruction instruction,
             Order projectedOrder,
             long decisionTimeNanos,
             ReconciliationResult result
     ) {
-        if (desiredOrder == null && projectedOrder == null) {
+        if (instruction.getAction() == OrderInstruction.Action.KEEP) {
             return;
         }
-        if (desiredOrder == null) {
+
+        if (instruction.getAction() == OrderInstruction.Action.CANCEL) {
+            if (projectedOrder == null) {
+                return;
+            }
             sendCancel(projectedOrder, decisionTimeNanos);
             result.recordCancel();
             return;
         }
+
+        DesiredOrder desiredOrder = instruction.getDesiredOrder();
         if (projectedOrder == null) {
             sendPlace(desiredOrder, decisionTimeNanos);
             return;

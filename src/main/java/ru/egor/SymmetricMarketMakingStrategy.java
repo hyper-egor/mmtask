@@ -23,6 +23,7 @@ public final class SymmetricMarketMakingStrategy implements MarketMakingStrategy
             OrderBookEvent orderBook,
             boolean bookFresh,
             double inventory,
+            double averageEntryPrice,
             PositionRange positionRange,
             Order projectedBid,
             Order projectedAsk

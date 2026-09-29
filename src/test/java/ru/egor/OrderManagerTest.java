@@ -159,4 +159,21 @@ class OrderManagerTest {
         assertNull(manager.getActiveOrder(OrderSide.SELL));
         assertEquals(0, manager.getPendingCommandCount());
     }
+
+    @Test
+    void keepInstructionDoesNotPlaceOrCancelOrders() {
+        OrderManager manager = new OrderManager(10L);
+        manager.reconcile(
+                new DesiredOrders(new DesiredOrder(OrderSide.BUY, 100.0, 2.0), null),
+                100L
+        );
+        manager.applyCommandsBefore(111L);
+        long activeBidId = manager.getActiveOrder(OrderSide.BUY).getId();
+
+        manager.reconcile(DesiredOrders.keepBoth(), 120L);
+
+        assertEquals(activeBidId, manager.getActiveOrder(OrderSide.BUY).getId());
+        assertNull(manager.getProjectedOrder(OrderSide.SELL));
+        assertEquals(0, manager.getPendingCommandCount());
+    }
 }
