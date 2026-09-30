@@ -5,11 +5,16 @@ public final class Order {
     private final OrderSide side;
     private final double price;
     private final double originalSize;
+    private final boolean reduceOnly;
     private double remainingSize;
     private double queueAhead;
     private boolean queueInitialized;
 
     public Order(long id, OrderSide side, double price, double remainingSize) {
+        this(id, side, price, remainingSize, false);
+    }
+
+    public Order(long id, OrderSide side, double price, double remainingSize, boolean reduceOnly) {
         if (price <= 0.0 || remainingSize <= 0.0) {
             throw new IllegalArgumentException("Цена и объем ордера должны быть положительными");
         }
@@ -18,6 +23,7 @@ public final class Order {
         this.side = side;
         this.price = price;
         this.originalSize = remainingSize;
+        this.reduceOnly = reduceOnly;
         this.remainingSize = remainingSize;
         this.queueAhead = 0.0;
         this.queueInitialized = false;
@@ -41,6 +47,10 @@ public final class Order {
 
     public double getOriginalSize() {
         return originalSize;
+    }
+
+    public boolean isReduceOnly() {
+        return reduceOnly;
     }
 
     public double getQueueAhead() {
@@ -95,7 +105,7 @@ public final class Order {
 
     // Копия нужна для projected state и обязана сохранять уже накопленное состояние очереди.
     public Order copy() {
-        Order copy = new Order(id, side, price, originalSize);
+        Order copy = new Order(id, side, price, originalSize, reduceOnly);
         copy.remainingSize = remainingSize;
         if (queueInitialized) {
             copy.initializeQueue(queueAhead);

@@ -2,27 +2,27 @@ package ru.egor;
 
 public final class PriceMagnetStrategy implements MarketMakingStrategy {
     // Главный переключатель эксперимента: false оставляет только механику инерции.
-    private static final boolean USE_MAGNET = true;
+    private static final boolean USE_MAGNET = false;
 
     private static final double TICK_SIZE = 0.1;
-    private static final long INERTIA_WINDOW_NANOS = 3_000_000_000L;
+    private static final long INERTIA_WINDOW_NANOS = 5_000_000_000L;
     private static final double MINIMUM_MOVE_TICKS = 2.0;
     private static final double MINIMUM_WINDOW_COVERAGE_SHARE = 0.75; // если окно не полностью прогрето - когда сигналить
-    private static final int FIXED_EXIT_TICKS = 3;
-    private static final long ENTRY_TIMEOUT_NANOS = 3_000_000_000L;
-    private static final long MAXIMUM_HOLDING_NANOS = 60_000_000_000L;
-    private static final int STOP_LOSS_TICKS = 6;
-    private static final long RISK_EXIT_REFRESH_NANOS = 250_000_000L;
+    private static final int FIXED_EXIT_TICKS = 1000;
+    private static final long ENTRY_TIMEOUT_NANOS = 1_000_000_000L; // после этого таймера инвалидируем команду на вход
+    private static final long MAXIMUM_HOLDING_NANOS = 10_000_000_000L;
+    private static final int STOP_LOSS_TICKS = 1000;
+    private static final long RISK_EXIT_REFRESH_NANOS = 250_000_000L; // интервал между перестановкой оредра на выход при смещении цены
 
-    private static final double WALL_RATIO = 3.0;
-    private static final double MINIMUM_WALL_VOLUME = 3.0;
-    private static final long MINIMUM_WALL_AGE_NANOS = 3_000_000_000L;
+    private static final double WALL_RATIO = 2.0;
+    private static final double MINIMUM_WALL_VOLUME = 2.0;
+    private static final long MINIMUM_WALL_AGE_NANOS = 2_000_000_000L;
     private static final double MINIMUM_PRESENCE_SHARE = 0.80;
     private static final double MINIMUM_RETAINED_VOLUME_SHARE = 0.50;
     private static final long WALL_MISSING_GRACE_NANOS = 500_000_000L;
-    private static final int MINIMUM_WALL_DISTANCE_TICKS = 1;
-    private static final int MAXIMUM_WALL_DISTANCE_TICKS = 7;
-    private static final double MAXIMUM_THIN_VOLUME_RATIO = 0.50;
+    private static final int MINIMUM_WALL_DISTANCE_TICKS = 2;
+    private static final int MAXIMUM_WALL_DISTANCE_TICKS = 12;
+    private static final double MAXIMUM_THIN_VOLUME_RATIO = 0.90;
     private static final double POSITION_EPSILON = 1e-9;
 
     private final double orderSize;
@@ -119,7 +119,7 @@ public final class PriceMagnetStrategy implements MarketMakingStrategy {
         }
 
         updateIndicators(orderBook);
-        PriceInertiaWindow.Signal signal = inertiaWindow.getSignal();
+        PriceInertiaWindow.Signal signal = inertiaWindow.getSignal(); // куда цена пошла за время окна
         updateEntryArming(signal);
 
         if (!hasPosition(inventory)
@@ -151,6 +151,7 @@ public final class PriceMagnetStrategy implements MarketMakingStrategy {
         }
         if (state == StrategyState.ENTRY_PENDING) {
             return decideEntryPending(
+                    orderBook,
                     signal,
                     positionRange,
                     projectedBid,
@@ -223,8 +224,9 @@ public final class PriceMagnetStrategy implements MarketMakingStrategy {
         return quoteOneSide(entrySide, entryOrder);
     }
 
-    // Сохраняет фиксированную цену входа либо начинает безопасную отмену плана.
+    // Подтягивает вход вслед за сохраняющимся сигналом либо безопасно отменяет план.
     private DesiredOrders decideEntryPending(
+            OrderBookEvent orderBook,
             PriceInertiaWindow.Signal signal,
             PositionRange positionRange,
             Order projectedBid,
@@ -262,6 +264,7 @@ public final class PriceMagnetStrategy implements MarketMakingStrategy {
             return DesiredOrders.empty();
         }
 
+        moveEntryPlanWithSignal(orderBook, signal);
         DesiredOrder desiredEntry = new DesiredOrder(side, tradePlan.entryOrderPrice, orderSize);
         if (projectedEntry != null && desiredEntry.matches(projectedEntry)) {
             return keepOneSide(side);
@@ -275,6 +278,34 @@ public final class PriceMagnetStrategy implements MarketMakingStrategy {
             return DesiredOrders.empty();
         }
         return quoteOneSide(side, desiredEntry);
+    }
+
+    // Пока исходный импульс сохраняется, двигает entry только вслед за ним. Target
+    // получает ту же дельту, чтобы repricing не менял запланированную дистанцию выхода.
+    private void moveEntryPlanWithSignal(
+            OrderBookEvent orderBook,
+            PriceInertiaWindow.Signal signal
+    ) {
+        if (signal != tradePlan.direction) {
+            return;
+        }
+
+        OrderSide side = entrySide(tradePlan.direction);
+        double currentBestPrice = side == OrderSide.BUY
+                ? orderBook.getBidPrice(0)
+                : orderBook.getAskPrice(0);
+        boolean movedWithSignal = side == OrderSide.BUY
+                ? currentBestPrice > tradePlan.entryOrderPrice + POSITION_EPSILON
+                : currentBestPrice < tradePlan.entryOrderPrice - POSITION_EPSILON;
+        if (!movedWithSignal) {
+            return;
+        }
+
+        double priceDelta = currentBestPrice - tradePlan.entryOrderPrice;
+        tradePlan.entryOrderPrice = currentBestPrice;
+        if (tradePlan.targetPrice != null) {
+            tradePlan.targetPrice = roundToTick(tradePlan.targetPrice + priceDelta);
+        }
     }
 
     // После fill сначала дожидается отмены остатка входа, затем ставит фиксированный target.
@@ -640,7 +671,7 @@ public final class PriceMagnetStrategy implements MarketMakingStrategy {
     private static final class TradePlan {
         private final PriceInertiaWindow.Signal direction;
         private final long signalTimeNanos;
-        private final double entryOrderPrice;
+        private double entryOrderPrice;
         private final Double wallPrice;
         private Double targetPrice;
         private Double exitOrderPrice;

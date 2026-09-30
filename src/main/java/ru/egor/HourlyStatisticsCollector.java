@@ -11,6 +11,8 @@ public final class HourlyStatisticsCollector {
     private StatisticsSnapshot lastSnapshot;
     private long fillsInHour;
     private double tradedVolumeInHour;
+    private long reduceFillsInHour;
+    private double reduceVolumeInHour;
     private long gapResetsInHour;
 
     // Перед новым событием закрывает прошедшие часы последним состоянием, известным до события.
@@ -32,9 +34,13 @@ public final class HourlyStatisticsCollector {
         lastSnapshot = snapshot;
     }
 
-    public void onFill(Fill fill) {
+    public void onFill(Fill fill, boolean reduceOnly) {
         fillsInHour++;
         tradedVolumeInHour += fill.getSize();
+        if (reduceOnly) {
+            reduceFillsInHour++;
+            reduceVolumeInHour += fill.getSize();
+        }
     }
 
     public void onGapReset() {
@@ -58,10 +64,14 @@ public final class HourlyStatisticsCollector {
                 lastSnapshot,
                 fillsInHour,
                 tradedVolumeInHour,
+                reduceFillsInHour,
+                reduceVolumeInHour,
                 gapResetsInHour
         ));
         fillsInHour = 0L;
         tradedVolumeInHour = 0.0;
+        reduceFillsInHour = 0L;
+        reduceVolumeInHour = 0.0;
         gapResetsInHour = 0L;
     }
 }

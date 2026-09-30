@@ -66,6 +66,30 @@ class OrderManagerTest {
     }
 
     @Test
+    void countsReplacementBetweenReduceOnlyOrdersSeparately() {
+        OrderManager manager = new OrderManager(10L);
+        manager.reconcile(
+                new DesiredOrders(
+                        new DesiredOrder(OrderSide.BUY, 100.0, 2.0, true),
+                        null
+                ),
+                100L
+        );
+        manager.applyCommandsBefore(111L);
+
+        ReconciliationResult result = manager.reconcile(
+                new DesiredOrders(
+                        new DesiredOrder(OrderSide.BUY, 101.0, 2.0, true),
+                        null
+                ),
+                120L
+        );
+
+        assertEquals(1, result.getReplacements());
+        assertEquals(1, result.getReduceReplacements());
+    }
+
+    @Test
     void riskRangeIncludesActiveAndPendingOrders() {
         OrderManager manager = new OrderManager(10L);
         DesiredOrders bothSides = new DesiredOrders(

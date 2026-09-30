@@ -245,8 +245,18 @@ public final class BacktestRunner {
             return List.of();
         }
 
+        // Reduce-only ордер исполняется только против уже открытой позиции. Проверка
+        // в момент fill защищает от перехода через ноль во время cancel/place latency.
+        double maximumFillSize = order.getRemainingSize();
+        if (order.isReduceOnly()) {
+            maximumFillSize = calculateReduceOnlyFillLimit(order);
+            if (maximumFillSize <= 0.0) {
+                return List.of();
+            }
+        }
+
         double remainingTradeSize = order.consumeQueue(trade.getSize());
-        double fillSize = Math.min(order.getRemainingSize(), remainingTradeSize);
+        double fillSize = Math.min(maximumFillSize, remainingTradeSize);
         if (fillSize <= 0.0) {
             return List.of();
         }
@@ -258,6 +268,22 @@ public final class BacktestRunner {
                 order.getPrice(),
                 fillSize
         ));
+    }
+
+    // Возвращает фактический объем позиции, который разрешено закрыть reduce-only
+    // ордером соответствующей стороны, но не больше остатка самого ордера.
+    private double calculateReduceOnlyFillLimit(Order order) {
+        double inventory = portfolio.getInventory();
+        if (order.getSide() == OrderSide.BUY) {
+            if (inventory >= 0.0) {
+                return 0.0;
+            }
+            return Math.min(order.getRemainingSize(), Math.abs(inventory));
+        }
+        if (inventory <= 0.0) {
+            return 0.0;
+        }
+        return Math.min(order.getRemainingSize(), inventory);
     }
 
     // Snapshot только обновляет известный L2: сам по себе он не подтверждает fill.
@@ -272,8 +298,9 @@ public final class BacktestRunner {
             boolean fullFill = Double.compare(fill.getSize(), order.getRemainingSize()) == 0;
             boolean partialFill = fill.getSize() < order.getRemainingSize();
 
-            metrics.onFill(fill, fullFill, partialFill);
-            hourlyStatistics.onFill(fill);
+            boolean reduceOnly = order.isReduceOnly();
+            metrics.onFill(fill, fullFill, partialFill, reduceOnly);
+            hourlyStatistics.onFill(fill, reduceOnly);
             orderManager.applyFill(fill);
             portfolio.applyFill(fill, parameters.getMakerFeeBps());
             if (fullFill) {

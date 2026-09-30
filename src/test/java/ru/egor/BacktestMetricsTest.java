@@ -10,6 +10,37 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class BacktestMetricsTest {
 
     @Test
+    void separatesReduceOnlyActivityFromCommonOrderMetrics() {
+        BacktestMetrics metrics = new BacktestMetrics();
+        Portfolio portfolio = new Portfolio();
+        long startedAt = nanos("2026-03-19T00:00:00Z");
+        long filledAt = startedAt + 2_000_000_000L;
+        Order reduceOrder = new Order(7L, OrderSide.SELL, 101.0, 0.4, true);
+        Fill fill = new Fill(filledAt, 7L, OrderSide.SELL, 101.0, 0.4);
+
+        metrics.beforeEvent(startedAt);
+        metrics.afterEvent(new StatisticsSnapshot(portfolio, 100.0));
+        metrics.onOrderActivated(reduceOrder, startedAt);
+        metrics.onFill(fill, true, false, true);
+        metrics.onOrderClosed(reduceOrder, filledAt);
+        ReconciliationResult reconciliation = new ReconciliationResult();
+        reconciliation.recordReplacement();
+        reconciliation.recordReduceReplacement();
+        metrics.onReconciliation(reconciliation);
+        metrics.beforeEvent(filledAt);
+        metrics.afterEvent(new StatisticsSnapshot(portfolio, 100.0));
+
+        BacktestSummaryRow total = metrics.finish(filledAt).get(1);
+        assertEquals(1L, total.getReduceActivatedOrders());
+        assertEquals(1L, total.getReduceFillEvents());
+        assertEquals(1L, total.getReduceFullyFilledOrders());
+        assertEquals(0L, total.getReducePartiallyFilledOrders());
+        assertEquals(0.4, total.getReduceFillVolume(), 1e-9);
+        assertEquals(1L, total.getReduceReplacements());
+        assertEquals(2_000.0, total.getAverageReduceOrderLifetimeMillis(), 1e-9);
+    }
+
+    @Test
     void dailyPnlAddsUpToTotalAcrossUtcBoundary() {
         BacktestMetrics metrics = new BacktestMetrics();
         Portfolio portfolio = new Portfolio();

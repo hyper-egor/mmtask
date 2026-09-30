@@ -164,6 +164,9 @@ public final class OrderManager {
         sendPlace(desiredOrder, decisionTimeNanos);
         result.recordCancel();
         result.recordReplacement();
+        if (projectedOrder.isReduceOnly() && desiredOrder.isReduceOnly()) {
+            result.recordReduceReplacement();
+        }
     }
 
     // Резервирует id будущего ордера сразу, чтобы следующие решения видели pending place.
@@ -172,7 +175,8 @@ public final class OrderManager {
                 nextOrderId++,
                 desiredOrder.getSide(),
                 desiredOrder.getPrice(),
-                desiredOrder.getSize()
+                desiredOrder.getSize(),
+                desiredOrder.isReduceOnly()
         );
         pendingCommands.add(OrderCommand.place(order, effectiveTime(sentTimeNanos)));
     }

@@ -1,155 +1,65 @@
-# Метрики baseline backtest
+# Метрики backtest
 
-Этот документ фиксирует минимальный контракт метрик для S0 и последующих сравнений
-`S0 -> S1 -> S2 -> S3`. Новые показатели добавляем только под конкретный вопрос к
-результату.
+## PnL
 
----
+- `realizedPnlCumulative` — результат по закрытой части позиции;
+- `unrealizedPnlEnd` — переоценка открытой позиции по последнему известному mid;
+- `grossPnl = realizedPnl + unrealizedPnl`;
+- `feesPaidCumulative` — maker fees;
+- `fundingPnlCumulative` — в текущем исследовании всегда 0;
+- `netPnl = grossPnl - fees + funding`;
+- `dailyPnl` — изменение net equity за календарный день.
 
-## 1. PnL
-
-- `realizedPnL` — результат по закрытой части позиции;
-- `unrealizedPnL` — переоценка открытой позиции по последнему известному mid;
-- `grossPnL = realizedPnL + unrealizedPnL`;
-- `feesPaid` — комиссии, положительное число расходов;
-- `fundingPnL` — в S0 всегда равен нулю;
-- `netPnL = grossPnL - feesPaid + fundingPnL`;
-- `dailyPnL` — изменение net equity за календарный день.
-
-Позиция учитывается по average entry price. Fill в ту же сторону пересчитывает
-среднюю цену. Fill в противоположную сторону сначала закрывает позицию до нуля и
-создает realized PnL. Если fill переводит позицию через ноль, его остаток открывает
-новую позицию по цене этого fill.
-
-Для unrealized PnL используется последний mid, известный на момент расчета. В конце
-календарного дня — последний валидный mid этого дня.
-
-Синтетический денежный ledger нужен только как независимая проверка accounting:
+Позиция учитывается по average entry price. Независимый cash ledger проверяет PnL:
 
 ```text
-netPnL = tradingCash + inventory * mid - feesPaid + fundingPnL
+netPnl = tradingCash + inventory * mid - fees + funding
 ```
 
-Он должен сходиться с разложением выше и не прибавляется к PnL повторно.
+Он используется только как invariant и не прибавляется к PnL повторно.
 
-## 2. Комиссии и funding
-
-Maker fee задается параметром backtest. Нулевой baseline допустим, но значение
-комиссии всегда выводится рядом с результатом. Набор произвольных fee-сценариев не
-нужен; после S0 достаточно оценить break-even maker fee.
-
-Строки funding содержат rate, а не подтвержденные денежные списания. Поэтому в S0
-`fundingPnL = 0`. Использование funding как слабого сигнала отложено до S3.
-
-## 3. Inventory и риск
+## Inventory и риск
 
 - конечный inventory;
-- максимальный long inventory;
-- максимальный short inventory;
-- средний абсолютный inventory;
+- максимальный long и short inventory;
+- средний абсолютный inventory, взвешенный по времени;
 - max drawdown по net equity.
 
-Средний абсолютный inventory считается по времени, а не по числу событий:
-
 ```text
-averageAbsInventory =
-    sum(abs(inventory) * duration) / totalDuration
+averageAbsInventory = sum(abs(inventory) * duration) / totalDuration
 ```
 
-Max drawdown — максимальное падение net equity от уже достигнутого максимума до
-последующего минимума.
+Max drawdown — максимальное падение equity от достигнутого ранее максимума.
 
-## 4. Исполнение ордеров
+## Исполнение
 
-- число активированных ордеров;
-- число fill events;
-- число полностью исполненных ордеров;
-- число ордеров, получивших хотя бы один partial fill;
-- buy fill volume;
-- sell fill volume;
-- total traded volume;
-- средний размер fill.
+- активированные ордера;
+- fill events;
+- полностью и частично исполненные ордера;
+- buy, sell и total fill volume;
+- средний размер fill;
+- cancel commands и replacements;
+- среднее время жизни active order;
+- gap resets и время со stale book.
 
-Pending place не считается активированным ордером. Один ордер с несколькими partial
-fills считается одним активированным ордером и несколькими fill events.
+Для reduce-only ордеров отдельно считаются активации, fills, full/partial fills,
+volume, replacements и среднее время жизни. Один ордер с несколькими partial fills
+считается одной активацией и несколькими fill events.
 
-## 5. Работа котирования
+## Период расчета
 
-- количество cancel/replace;
-- среднее время жизни активного ордера;
-- число gap resets;
-- время без котирования из-за stale order book.
+Все три дня проигрываются одним непрерывным event tape. На границе дня inventory,
+average entry, PnL и состояние стратегии не сбрасываются. Поэтому `dailyPnl` считается
+как изменение equity относительно конца предыдущего дня, а дневные значения точно
+складываются в общий PnL.
 
-Время жизни ордера считается от активации до полного fill, cancel или gap reset.
-Для ордера, оставшегося активным в конце backtest, используется время до конца
-backtest. Pending latency во время жизни не входит.
+## Артефакты
 
-## 6. Диагностика после первого S0
+Каждый запуск сохраняется в `results/<StrategyClass>/`:
 
-Если понадобится объяснить adverse selection перед S2, добавляем один maker markout
-через 500 мс:
+- `summary.csv` — строки по дням и `TOTAL`, параметры запуска и все итоговые метрики;
+- `hourly.csv` — 72 часовых среза без интерполяции будущих данных;
+- `timeline.png` — net PnL и inventory.
 
-```text
-buy fill:  futureMid - fillPrice
-sell fill: fillPrice - futureMid
-```
-
-Будущий mid используется только для оценки fill и никогда не влияет на решение
-стратегии. Также после S0 можно посчитать break-even maker fee.
-
-Пока не считаем volume fill ratio, время около soft/hard limit, время с bid/ask,
-spread capture, Sharpe, VaR, Expected Shortfall, несколько markout-горизонтов,
-набор fee-сценариев и сложные ratios.
-
-## 7. Период расчета и формат результата
-
-Все загруженные дни проигрываются одним непрерывным backtest в хронологическом
-порядке. На границе календарного дня inventory, average entry price, PnL и прочее
-состояние не сбрасываются. Большой разрыв между файлами обрабатывается обычным gap
-watchdog: ордера снимаются, но portfolio сохраняется.
-
-Результат содержит строки по каждому загруженному календарному дню и строку за весь
-период. `dailyPnL` считается как изменение net equity относительно конца предыдущего
-дня; для первого дня — относительно нулевого начального состояния. Поэтому дневные
-PnL складываются в общий PnL даже при переносе inventory.
-
-Основные результаты сохраняются в `summary.csv` и кратко выводятся в консоль. В обоих
-местах рядом с итоговыми цифрами указываются имя класса стратегии и параметры
-`orderSize`, `hardInventoryLimit`, `orderLatencyNanos`, `maxBookAgeNanos` и
-`makerFeeBps`.
-
-Артефакты складываются в подпапку класса стратегии, например:
-
-```text
-results/SymmetricMarketMakingStrategy/
-```
-
-## 8. Почасовой timeline
-
-Отдельный универсальный накопитель, не зависящий от конкретной стратегии, сохраняет
-один срез на конец каждого часа UTC. Он вызывается runner после каждого market event,
-но записывает только 24 точки за полный день и 72 точки за три дня.
-
-Каждый срез использует только последнее уже известное состояние. Будущие события и
-интерполяция не используются. Минимальные поля:
-
-```text
-hourEndUtc
-midPrice
-inventory
-realizedPnl
-unrealizedPnl
-grossPnl
-feesPaid
-fundingPnl
-netPnl
-fillsInHour
-tradedVolumeInHour
-gapResetsInHour
-```
-
-Часовые точки нужны только для компактного графика динамики. Max drawdown и средний
-абсолютный inventory продолжают считаться точно по всем событиям.
-
-Рядом с CSV создается один небольшой `timeline.png` с двумя панелями: net PnL и
-inventory. Интерактивный dashboard и более частая временная сетка не нужны.
+Max drawdown и средний абсолютный inventory считаются по всем событиям, а не по
+часовым точкам.

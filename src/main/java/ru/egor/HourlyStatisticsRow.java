@@ -5,6 +5,8 @@ public final class HourlyStatisticsRow {
     private final StatisticsSnapshot snapshot;
     private final long fillsInHour;
     private final double tradedVolumeInHour;
+    private final long reduceFillsInHour;
+    private final double reduceVolumeInHour;
     private final long gapResetsInHour;
 
     public HourlyStatisticsRow(
@@ -12,12 +14,16 @@ public final class HourlyStatisticsRow {
             StatisticsSnapshot snapshot,
             long fillsInHour,
             double tradedVolumeInHour,
+            long reduceFillsInHour,
+            double reduceVolumeInHour,
             long gapResetsInHour
     ) {
         this.hourEndNanos = hourEndNanos;
         this.snapshot = snapshot;
         this.fillsInHour = fillsInHour;
         this.tradedVolumeInHour = tradedVolumeInHour;
+        this.reduceFillsInHour = reduceFillsInHour;
+        this.reduceVolumeInHour = reduceVolumeInHour;
         this.gapResetsInHour = gapResetsInHour;
     }
 
@@ -35,6 +41,14 @@ public final class HourlyStatisticsRow {
 
     public double getTradedVolumeInHour() {
         return tradedVolumeInHour;
+    }
+
+    public long getReduceFillsInHour() {
+        return reduceFillsInHour;
+    }
+
+    public double getReduceVolumeInHour() {
+        return reduceVolumeInHour;
     }
 
     public long getGapResetsInHour() {

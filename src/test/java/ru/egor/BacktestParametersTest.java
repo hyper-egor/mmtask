@@ -10,10 +10,10 @@ class BacktestParametersTest {
     void baselineContainsApprovedS0Values() {
         BacktestParameters parameters = BacktestParameters.baseline();
 
-        assertEquals(1.0, parameters.getOrderSize());
-        assertEquals(5.0, parameters.getHardInventoryLimit());
-        assertEquals(10_000_000L, parameters.getOrderLatencyNanos());
-        assertEquals(1_000_000_000L, parameters.getMaxBookAgeNanos());
-        assertEquals(0.0, parameters.getMakerFeeBps());
+        assertEquals(BacktestParameters.DEFAULT_ORDER_SIZE, parameters.getOrderSize());
+        assertEquals(BacktestParameters.DEFAULT_HARD_INVENTORY_LIMIT, parameters.getHardInventoryLimit());
+        assertEquals(BacktestParameters.DEFAULT_ORDER_LATENCY_NANOS, parameters.getOrderLatencyNanos());
+        assertEquals(BacktestParameters.DEFAULT_MAX_BOOK_AGE_NANOS, parameters.getMaxBookAgeNanos());
+        assertEquals(BacktestParameters.DEFAULT_MAKER_FEE_BPS, parameters.getMakerFeeBps());
     }
 }

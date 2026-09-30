@@ -17,7 +17,7 @@ class HourlyStatisticsCollectorTest {
 
         collector.beforeEvent(firstEvent);
         collector.afterEvent(new StatisticsSnapshot(portfolio, 100.0));
-        collector.onFill(new Fill(firstEvent, 1L, OrderSide.BUY, 100.0, 0.5));
+        collector.onFill(new Fill(firstEvent, 1L, OrderSide.BUY, 100.0, 0.5), true);
 
         long secondEvent = nanos("2026-03-19T01:05:00Z");
         collector.beforeEvent(secondEvent);
@@ -30,6 +30,8 @@ class HourlyStatisticsCollectorTest {
         assertEquals(nanos("2026-03-19T01:00:00Z"), rows.get(0).getHourEndNanos());
         assertEquals(0.0, rows.get(0).getSnapshot().getInventory());
         assertEquals(1L, rows.get(0).getFillsInHour());
+        assertEquals(1L, rows.get(0).getReduceFillsInHour());
+        assertEquals(0.5, rows.get(0).getReduceVolumeInHour());
         assertEquals(nanos("2026-03-19T02:00:00Z"), rows.get(1).getHourEndNanos());
         assertEquals(1.0, rows.get(1).getSnapshot().getInventory());
     }

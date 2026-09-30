@@ -64,6 +64,10 @@ public final class BacktestMetrics {
     public void onOrderActivated(Order order, long eventTimeNanos) {
         total.activatedOrders++;
         currentDay.activatedOrders++;
+        if (order.isReduceOnly()) {
+            total.reduceActivatedOrders++;
+            currentDay.reduceActivatedOrders++;
+        }
         activeOrderStartedAt.put(order.getId(), eventTimeNanos);
     }
 
@@ -76,18 +80,24 @@ public final class BacktestMetrics {
         long lifetimeNanos = Math.max(0L, eventTimeNanos - startedAt);
         total.addOrderLifetime(lifetimeNanos);
         currentDay.addOrderLifetime(lifetimeNanos);
+        if (order.isReduceOnly()) {
+            total.addReduceOrderLifetime(lifetimeNanos);
+            currentDay.addReduceOrderLifetime(lifetimeNanos);
+        }
     }
 
-    public void onFill(Fill fill, boolean fullFill, boolean partialFill) {
-        total.addFill(fill, fullFill, partialFill);
-        currentDay.addFill(fill, fullFill, partialFill);
+    public void onFill(Fill fill, boolean fullFill, boolean partialFill, boolean reduceOnly) {
+        total.addFill(fill, fullFill, partialFill, reduceOnly);
+        currentDay.addFill(fill, fullFill, partialFill, reduceOnly);
     }
 
     public void onReconciliation(ReconciliationResult result) {
         total.cancelCommands += result.getCancelCommands();
         total.replacements += result.getReplacements();
+        total.reduceReplacements += result.getReduceReplacements();
         currentDay.cancelCommands += result.getCancelCommands();
         currentDay.replacements += result.getReplacements();
+        currentDay.reduceReplacements += result.getReduceReplacements();
     }
 
     public void onGapReset() {
@@ -155,15 +165,23 @@ public final class BacktestMetrics {
         private double peakEquity;
         private double maxDrawdown;
         private long activatedOrders;
+        private long reduceActivatedOrders;
         private long fillEvents;
         private long fullyFilledOrders;
         private final Set<Long> partiallyFilledOrderIds = new HashSet<>();
+        private long reduceFillEvents;
+        private long reduceFullyFilledOrders;
+        private final Set<Long> reducePartiallyFilledOrderIds = new HashSet<>();
+        private double reduceFillVolume;
         private double buyFillVolume;
         private double sellFillVolume;
         private long cancelCommands;
         private long replacements;
+        private long reduceReplacements;
         private long closedOrderCount;
         private long totalOrderLifetimeNanos;
+        private long closedReduceOrderCount;
+        private long totalReduceOrderLifetimeNanos;
         private long gapResets;
         private long staleNanos;
 
@@ -183,7 +201,12 @@ public final class BacktestMetrics {
             absoluteInventoryNanos += Math.abs(inventory) * durationNanos;
         }
 
-        private void addFill(Fill fill, boolean fullFill, boolean partialFill) {
+        private void addFill(
+                Fill fill,
+                boolean fullFill,
+                boolean partialFill,
+                boolean reduceOnly
+        ) {
             fillEvents++;
             if (fill.getSide() == OrderSide.BUY) {
                 buyFillVolume += fill.getSize();
@@ -196,11 +219,26 @@ public final class BacktestMetrics {
             if (partialFill) {
                 partiallyFilledOrderIds.add(fill.getOrderId());
             }
+            if (reduceOnly) {
+                reduceFillEvents++;
+                reduceFillVolume += fill.getSize();
+                if (fullFill) {
+                    reduceFullyFilledOrders++;
+                }
+                if (partialFill) {
+                    reducePartiallyFilledOrderIds.add(fill.getOrderId());
+                }
+            }
         }
 
         private void addOrderLifetime(long lifetimeNanos) {
             closedOrderCount++;
             totalOrderLifetimeNanos += lifetimeNanos;
+        }
+
+        private void addReduceOrderLifetime(long lifetimeNanos) {
+            closedReduceOrderCount++;
+            totalReduceOrderLifetimeNanos += lifetimeNanos;
         }
 
         private BacktestSummaryRow toRow(String period, StatisticsSnapshot snapshot, double dailyPnl) {
@@ -210,6 +248,9 @@ public final class BacktestMetrics {
             double averageLifetimeMillis = closedOrderCount == 0L
                     ? 0.0
                     : totalOrderLifetimeNanos / 1_000_000.0 / closedOrderCount;
+            double averageReduceLifetimeMillis = closedReduceOrderCount == 0L
+                    ? 0.0
+                    : totalReduceOrderLifetimeNanos / 1_000_000.0 / closedReduceOrderCount;
 
             return new BacktestSummaryRow(
                     period,
@@ -220,14 +261,21 @@ public final class BacktestMetrics {
                     averageAbsInventory,
                     maxDrawdown,
                     activatedOrders,
+                    reduceActivatedOrders,
                     fillEvents,
                     fullyFilledOrders,
                     partiallyFilledOrderIds.size(),
+                    reduceFillEvents,
+                    reduceFullyFilledOrders,
+                    reducePartiallyFilledOrderIds.size(),
+                    reduceFillVolume,
                     buyFillVolume,
                     sellFillVolume,
                     cancelCommands,
                     replacements,
+                    reduceReplacements,
                     averageLifetimeMillis,
+                    averageReduceLifetimeMillis,
                     gapResets,
                     staleNanos / 1_000_000_000.0
             );

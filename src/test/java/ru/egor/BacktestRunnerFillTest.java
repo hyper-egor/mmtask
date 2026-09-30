@@ -232,6 +232,54 @@ class BacktestRunnerFillTest {
         assertEquals(1.0, runner.getInventory());
     }
 
+    @Test
+    void reduceOnlyBuyFillCannotCrossShortPositionThroughZero() {
+        BacktestRunner runner = runner(10L, 1_000L);
+        runner.getPortfolio().applyFill(
+                new Fill(1L, 1L, OrderSide.SELL, 100.0, 0.3),
+                0.0
+        );
+        runner.processEvent(orderBook(100L, 100.0, 0.0, 101.0, 0.0));
+        runner.getOrderManager().reconcile(
+                new DesiredOrders(
+                        new DesiredOrder(OrderSide.BUY, 100.0, 1.0, true),
+                        null
+                ),
+                100L
+        );
+        runner.processEvent(new FundingRateEvent(111L, 0.0));
+
+        runner.processEvent(new TradeEvent(112L, 100.0, 2.0, false));
+        runner.processEvent(new TradeEvent(113L, 100.0, 2.0, false));
+
+        assertEquals(0.0, runner.getInventory(), 1e-9);
+        assertEquals(0.7, runner.getOrderManager().getActiveOrder(OrderSide.BUY).getRemainingSize(), 1e-9);
+    }
+
+    @Test
+    void reduceOnlySellFillCannotCrossLongPositionThroughZero() {
+        BacktestRunner runner = runner(10L, 1_000L);
+        runner.getPortfolio().applyFill(
+                new Fill(1L, 1L, OrderSide.BUY, 100.0, 0.25),
+                0.0
+        );
+        runner.processEvent(orderBook(100L, 100.0, 0.0, 101.0, 0.0));
+        runner.getOrderManager().reconcile(
+                new DesiredOrders(
+                        null,
+                        new DesiredOrder(OrderSide.SELL, 101.0, 1.0, true)
+                ),
+                100L
+        );
+        runner.processEvent(new FundingRateEvent(111L, 0.0));
+
+        runner.processEvent(new TradeEvent(112L, 101.0, 2.0, true));
+        runner.processEvent(new TradeEvent(113L, 101.0, 2.0, true));
+
+        assertEquals(0.0, runner.getInventory(), 1e-9);
+        assertEquals(0.75, runner.getOrderManager().getActiveOrder(OrderSide.SELL).getRemainingSize(), 1e-9);
+    }
+
     private BacktestRunner activeBidWithQueueFive() {
         BacktestRunner runner = runner(10L, 1_000L);
         runner.processEvent(orderBook(100L, 100.0, 5.0, 101.0, 6.0));
@@ -275,7 +323,12 @@ class BacktestRunnerFillTest {
             if (order == null) {
                 return null;
             }
-            return new DesiredOrder(order.getSide(), order.getPrice(), order.getOriginalSize());
+            return new DesiredOrder(
+                    order.getSide(),
+                    order.getPrice(),
+                    order.getOriginalSize(),
+                    order.isReduceOnly()
+            );
         }
     }
 

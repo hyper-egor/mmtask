@@ -39,7 +39,9 @@ public final class BacktestReportWriter {
                     + "maxShortInventory,averageAbsInventory,maxDrawdown,activatedOrders,fillEvents,"
                     + "fullyFilledOrders,partiallyFilledOrders,buyFillVolume,sellFillVolume,"
                     + "totalFillVolume,averageFillSize,cancelCommands,replacements,"
-                    + "averageOrderLifetimeMillis,gapResets,staleSeconds");
+                    + "averageOrderLifetimeMillis,gapResets,staleSeconds,reduceActivatedOrders,"
+                    + "reduceFillEvents,reduceFullyFilledOrders,reducePartiallyFilledOrders,"
+                    + "reduceFillVolume,reduceReplacements,averageReduceOrderLifetimeMillis");
             writer.newLine();
 
             BacktestParameters parameters = result.getParameters();
@@ -48,7 +50,8 @@ public final class BacktestReportWriter {
                 writer.write(String.format(Locale.US,
                         "%s,%s,%.8f,%.8f,%d,%.6f,%d,%.6f,%.8f,"
                                 + "%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,"
-                                + "%d,%d,%d,%d,%.8f,%.8f,%.8f,%.8f,%d,%d,%.6f,%d,%.6f",
+                                + "%d,%d,%d,%d,%.8f,%.8f,%.8f,%.8f,%d,%d,%.6f,%d,%.6f,"
+                                + "%d,%d,%d,%d,%.8f,%d,%.6f",
                         row.getPeriod(), result.getStrategyName(), parameters.getOrderSize(),
                         parameters.getHardInventoryLimit(), parameters.getOrderLatencyNanos(),
                         parameters.getOrderLatencyNanos() / 1_000_000.0,
@@ -61,7 +64,10 @@ public final class BacktestReportWriter {
                         row.getFullyFilledOrders(), row.getPartiallyFilledOrders(), row.getBuyFillVolume(),
                         row.getSellFillVolume(), row.getTotalFillVolume(), row.getAverageFillSize(),
                         row.getCancelCommands(), row.getReplacements(), row.getAverageOrderLifetimeMillis(),
-                        row.getGapResets(), row.getStaleSeconds()));
+                        row.getGapResets(), row.getStaleSeconds(), row.getReduceActivatedOrders(),
+                        row.getReduceFillEvents(), row.getReduceFullyFilledOrders(),
+                        row.getReducePartiallyFilledOrders(), row.getReduceFillVolume(),
+                        row.getReduceReplacements(), row.getAverageReduceOrderLifetimeMillis()));
                 writer.newLine();
             }
         }
@@ -71,21 +77,23 @@ public final class BacktestReportWriter {
         try (BufferedWriter writer = Files.newBufferedWriter(file)) {
             writer.write("hourEndUtc,strategy,orderSize,hardInventoryLimit,orderLatencyMillis,"
                     + "maxBookAgeSeconds,makerFeeBps,midPrice,inventory,realizedPnl,unrealizedPnl,"
-                    + "grossPnl,feesPaid,fundingPnl,netPnl,fillsInHour,tradedVolumeInHour,gapResetsInHour");
+                    + "grossPnl,feesPaid,fundingPnl,netPnl,fillsInHour,tradedVolumeInHour,"
+                    + "gapResetsInHour,reduceFillsInHour,reduceVolumeInHour");
             writer.newLine();
 
             BacktestParameters parameters = result.getParameters();
             for (HourlyStatisticsRow row : result.getHourlyRows()) {
                 StatisticsSnapshot snapshot = row.getSnapshot();
                 writer.write(String.format(Locale.US,
-                        "%s,%s,%.8f,%.8f,%.6f,%.6f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%d,%.8f,%d",
+                        "%s,%s,%.8f,%.8f,%.6f,%.6f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%.8f,%d,%.8f,%d,%d,%.8f",
                         formatInstant(row.getHourEndNanos()), result.getStrategyName(), parameters.getOrderSize(),
                         parameters.getHardInventoryLimit(), parameters.getOrderLatencyNanos() / 1_000_000.0,
                         parameters.getMaxBookAgeNanos() / 1_000_000_000.0, parameters.getMakerFeeBps(),
                         snapshot.getMidPrice(), snapshot.getInventory(), snapshot.getRealizedPnl(),
                         snapshot.getUnrealizedPnl(), snapshot.getGrossPnl(), snapshot.getFeesPaid(),
                         snapshot.getFundingPnl(), snapshot.getNetPnl(), row.getFillsInHour(),
-                        row.getTradedVolumeInHour(), row.getGapResetsInHour()));
+                        row.getTradedVolumeInHour(), row.getGapResetsInHour(),
+                        row.getReduceFillsInHour(), row.getReduceVolumeInHour()));
                 writer.newLine();
             }
         }
@@ -181,6 +189,12 @@ public final class BacktestReportWriter {
                 snapshot.getNetPnl(), snapshot.getRealizedPnl(), snapshot.getUnrealizedPnl(),
                 snapshot.getInventory(), total.getFillEvents(), total.getTotalFillVolume(),
                 total.getMaxDrawdown(), total.getGapResets());
+        System.out.printf(Locale.US,
+                "Reduce-only: activated=%d, fills=%d, volume=%.6f, replacements=%d, "
+                        + "averageLifetime=%.3f ms%n",
+                total.getReduceActivatedOrders(), total.getReduceFillEvents(),
+                total.getReduceFillVolume(), total.getReduceReplacements(),
+                total.getAverageReduceOrderLifetimeMillis());
         System.out.println("Результаты: " + strategyDirectory.toAbsolutePath());
     }
 
